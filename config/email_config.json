@@ -1,0 +1,7 @@
+{
+    "smtp_server": "smtp.example.com",
+    "smtp_port": 587,
+    "sender_email": "bensouidenemedyassine@gmail.com",
+    "sender_password": "securepassword",
+    "recipient_emails": ["hanitbini09@gmail.com"]
+}

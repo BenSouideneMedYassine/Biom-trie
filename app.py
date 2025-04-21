@@ -1,0 +1,388 @@
+import cv2
+import numpy as np
+import os
+from flask import Flask, render_template, Response, request, redirect, url_for
+import time
+import threading
+import base64
+import face_recognition
+from features import extract_features_opencv, load_face_features, save_face_features, identify_person, process_known_faces
+from features_fr import extract_features_face_recognition, load_face_features_fr, save_face_features_fr, identify_person_fr, process_known_faces_fr
+
+# Initialisation de l'application Flask
+app = Flask(__name__)
+
+# Variables globales
+camera = None
+camera_active = False
+frame_global = None
+detection_active = False
+recognition_active = False
+current_result = "Aucune détection"
+known_faces = {}
+known_face_encodings = []
+known_face_names = []
+known_features_dict = {}
+known_features_fr_dict = {}
+use_face_recognition = False  
+
+# Fonction pour charger les visages connus depuis le dataset
+def load_known_faces():
+    global known_face_encodings, known_face_names, known_faces, known_features_dict, known_features_fr_dict
+    
+    # Créer les répertoires nécessaires s'ils n'existent pas
+    os.makedirs(os.path.join('dataset', 'connu'), exist_ok=True)
+    os.makedirs(os.path.join('dataset', 'features'), exist_ok=True)
+    os.makedirs(os.path.join('dataset', 'features_fr'), exist_ok=True)
+    
+    if use_face_recognition:
+        # Traiter les visages connus pour extraire leurs caractéristiques avec face_recognition
+        process_known_faces_fr()
+        
+        # Charger les caractéristiques des visages connus
+        known_features_fr_dict = load_face_features_fr()
+        
+        # Mettre à jour la liste des noms des personnes connues
+        known_face_names = list(known_features_fr_dict.keys())
+        
+        print(f"Visages connus chargés avec face_recognition: {known_face_names}")
+    else:
+        # Charger les caractéristiques des visages connus avec OpenCV
+        known_features_dict = load_face_features()
+        
+        # Traiter les visages connus pour extraire leurs caractéristiques
+        process_known_faces()
+        
+        # Recharger les caractéristiques après le traitement
+        known_features_dict = load_face_features()
+        
+        # Mettre à jour la liste des noms des personnes connues
+        known_face_names = list(known_features_dict.keys())
+        
+        print(f"Visages connus chargés avec OpenCV: {known_face_names}")
+    
+    return known_face_names
+
+# Fonction pour initialiser la caméra
+def init_camera():
+    global camera
+    try:
+        camera = cv2.VideoCapture(0)
+        if not camera.isOpened():
+            print("Erreur: Impossible d'ouvrir la caméra")
+            return False
+        return True
+    except Exception as e:
+        print(f"Erreur lors de l'initialisation de la caméra: {e}")
+        return False
+
+# Fonction pour libérer la caméra
+def release_camera():
+    global camera, camera_active
+    if camera is not None:
+        camera.release()
+        camera = None
+    camera_active = False
+
+# Fonction pour capturer les images de la caméra
+def capture_frames():
+    global camera, frame_global, camera_active
+    
+    while camera_active:
+        if camera is None:
+            time.sleep(0.1)
+            continue
+            
+        success, frame = camera.read()
+        if not success:
+            print("Erreur: Impossible de lire la frame de la caméra")
+            time.sleep(0.1)
+            continue
+            
+        # Retourner l'image horizontalement pour un effet miroir
+        frame = cv2.flip(frame, 1)
+        
+        # Si la détection est active, nous traiterons l'image ici
+        if detection_active:
+            # Détection de visage avec OpenCV (en attendant face_recognition)
+            frame = detect_faces_opencv(frame)
+        
+        frame_global = frame
+        
+        # Petite pause pour réduire l'utilisation CPU
+        time.sleep(0.03)
+
+# Fonction pour détecter les visages et reconnaître les personnes
+def detect_faces_opencv(frame):
+    global current_result, known_features_dict, known_features_fr_dict
+    
+    try:
+        # Vérifier si l'image est valide
+        if frame is None or frame.size == 0:
+            current_result = "Image de caméra invalide"
+            return frame
+            
+        # S'assurer que l'image est au format 8-bit
+        if frame.dtype != np.uint8:
+            frame = np.uint8(frame)
+        
+        if use_face_recognition:
+            try:
+                # Utiliser face_recognition pour la détection et la reconnaissance
+                # Convertir l'image BGR (OpenCV) en RGB (face_recognition)
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                
+                # Détecter les visages
+                face_locations = face_recognition.face_locations(rgb_frame)
+                
+                # Dessiner un rectangle autour de chaque visage
+                for (top, right, bottom, left) in face_locations:
+                    cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
+                    
+                    if recognition_active:
+                        try:
+                            # Extraire les caractéristiques du visage détecté
+                            face_encodings = face_recognition.face_encodings(rgb_frame, [(top, right, bottom, left)])
+                            
+                            if len(face_encodings) > 0 and known_features_fr_dict:
+                                # Identifier la personne
+                                person_name, confidence = identify_person_fr(face_encodings[0], known_features_fr_dict)
+                                
+                                # Afficher le nom de la personne et la confiance
+                                label = f"{person_name} ({confidence:.2f})"
+                                cv2.putText(frame, label, (left, top-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                                
+                                if person_name != "Inconnu":
+                                    current_result = f"Personne identifiée: {person_name} (confiance: {confidence:.2f})"
+                                else:
+                                    current_result = "Personne inconnue détectée"
+                            else:
+                                cv2.putText(frame, "Inconnu", (left, top-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                                current_result = "Personne inconnue détectée"
+                        except Exception as e:
+                            print(f"Erreur lors de la reconnaissance: {e}")
+                            cv2.putText(frame, "Erreur reconnaissance", (left, top-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                            current_result = f"Erreur de reconnaissance: {str(e)[:30]}"
+                    else:
+                        current_result = f"{len(face_locations)} visage(s) détecté(s)"
+                
+                if len(face_locations) == 0:
+                    current_result = "Aucun visage détecté"
+            except Exception as e:
+                print(f"Erreur avec face_recognition: {e}")
+                # Fallback à OpenCV en cas d'erreur
+                use_opencv_fallback = True
+                current_result = f"Erreur face_recognition: {str(e)[:30]}"
+                # Continuer avec la méthode OpenCV ci-dessous
+        else:
+            use_opencv_fallback = True
+        
+        # Utiliser OpenCV si spécifié ou en cas d'erreur avec face_recognition
+        if not use_face_recognition or 'use_opencv_fallback' in locals():
+            # Convertir en niveaux de gris
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            
+            # Utiliser le détecteur de visage Haar Cascade
+            face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+            faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+            
+            # Dessiner un rectangle autour de chaque visage
+            for (x, y, w, h) in faces:
+                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                
+                if recognition_active:
+                    try:
+                        # Extraire les caractéristiques du visage détecté
+                        face_img = frame[y:y+h, x:x+w]
+                        features = extract_features_opencv(face_img)
+                        
+                        if features is not None and known_features_dict:
+                            # Identifier la personne
+                            person_name = identify_person(features, known_features_dict)
+                            
+                            # Afficher le nom de la personne
+                            cv2.putText(frame, person_name, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                            
+                            if person_name != "Inconnu":
+                                current_result = f"Personne identifiée: {person_name}"
+                            else:
+                                current_result = "Personne inconnue détectée"
+                        else:
+                            cv2.putText(frame, "Inconnu", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                            current_result = "Personne inconnue détectée"
+                    except Exception as e:
+                        print(f"Erreur lors de la reconnaissance OpenCV: {e}")
+                        cv2.putText(frame, "Erreur", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                        current_result = f"Erreur: {str(e)[:30]}"
+                else:
+                    current_result = f"{len(faces)} visage(s) détecté(s)"
+            
+            if len(faces) == 0:
+                current_result = "Aucun visage détecté"
+    
+    except Exception as e:
+        print(f"Erreur générale dans detect_faces_opencv: {e}")
+        current_result = f"Erreur: {str(e)[:30]}"
+    
+    # Afficher le résultat sur l'image
+    cv2.putText(frame, current_result, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+    
+    return frame
+
+# Fonction pour générer le flux vidéo
+def generate_frames():
+    global frame_global
+    
+    while True:
+        if frame_global is None:
+            # Si aucune frame n'est disponible, envoyer une image noire
+            blank_image = np.zeros((480, 640, 3), np.uint8)
+            cv2.putText(blank_image, "Caméra inactive", (150, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            _, buffer = cv2.imencode('.jpg', blank_image)
+            frame = buffer.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            time.sleep(0.1)
+            continue
+            
+        # Encoder la frame en JPEG
+        _, buffer = cv2.imencode('.jpg', frame_global)
+        frame = buffer.tobytes()
+        
+        # Envoyer la frame au navigateur
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+
+# Routes Flask
+@app.route('/')
+def index():
+    return render_template('index.html', detection_active=detection_active, 
+                          recognition_active=recognition_active,
+                          camera_active=camera_active,
+                          result=current_result,
+                          known_faces=known_face_names)
+
+@app.route('/video_feed')
+def video_feed():
+    return Response(generate_frames(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/toggle_camera', methods=['POST'])
+def toggle_camera():
+    global camera_active, camera
+    
+    if camera_active:
+        camera_active = False
+        release_camera()
+    else:
+        if init_camera():
+            camera_active = True
+            # Démarrer le thread de capture
+            threading.Thread(target=capture_frames, daemon=True).start()
+    
+    return redirect(url_for('index'))
+
+@app.route('/toggle_detection', methods=['POST'])
+def toggle_detection():
+    global detection_active
+    detection_active = not detection_active
+    return redirect(url_for('index'))
+
+@app.route('/toggle_recognition', methods=['POST'])
+def toggle_recognition():
+    global recognition_active
+    recognition_active = not recognition_active
+    
+    # Charger les visages connus si la reconnaissance est activée
+    if recognition_active:
+        load_known_faces()
+    
+    return redirect(url_for('index'))
+
+@app.route('/add_face', methods=['POST'])
+def add_face():
+    global frame_global, known_features_dict, known_features_fr_dict
+    
+    if frame_global is None:
+        return redirect(url_for('index'))
+    
+    name = request.form.get('name', 'Inconnu')
+    if not name:
+        name = 'Inconnu'
+    
+    try:
+        # Vérifier si l'image est valide
+        if frame_global is None or frame_global.size == 0:
+            print("Image invalide pour l'ajout de visage")
+            return redirect(url_for('index'))
+            
+        # S'assurer que l'image est au format 8-bit
+        if frame_global.dtype != np.uint8:
+            frame_global = np.uint8(frame_global)
+        
+        # Sauvegarder l'image actuelle dans le dataset
+        face_path = os.path.join('dataset', 'connu', f"{name}.jpg")
+        cv2.imwrite(face_path, frame_global)
+        print(f"Image sauvegardée pour {name} à {face_path}")
+        
+        if use_face_recognition:
+            try:
+                # Extraire les caractéristiques du visage avec face_recognition
+                features_fr = extract_features_face_recognition(frame_global)
+                
+                # Sauvegarder les caractéristiques si un visage est détecté
+                if features_fr is not None:
+                    save_face_features_fr(name, features_fr)
+                    print(f"Caractéristiques face_recognition sauvegardées pour {name}")
+                else:
+                    print(f"Aucun visage détecté pour {name} avec face_recognition")
+            except Exception as e:
+                print(f"Erreur lors de l'extraction des caractéristiques face_recognition: {e}")
+                # Fallback à OpenCV
+                try:
+                    # Extraire les caractéristiques du visage avec OpenCV
+                    features = extract_features_opencv(frame_global)
+                    
+                    # Sauvegarder les caractéristiques si un visage est détecté
+                    if features is not None:
+                        save_face_features(name, features)
+                        print(f"Caractéristiques OpenCV sauvegardées pour {name} (fallback)")
+                    else:
+                        print(f"Aucun visage détecté pour {name} avec OpenCV (fallback)")
+                except Exception as e2:
+                    print(f"Erreur lors de l'extraction des caractéristiques OpenCV: {e2}")
+        else:
+            # Extraire les caractéristiques du visage avec OpenCV
+            features = extract_features_opencv(frame_global)
+            
+            # Sauvegarder les caractéristiques si un visage est détecté
+            if features is not None:
+                save_face_features(name, features)
+                print(f"Caractéristiques OpenCV sauvegardées pour {name}")
+            else:
+                print(f"Aucun visage détecté pour {name} avec OpenCV")
+        
+        # Recharger les visages connus
+        load_known_faces()
+        
+    except Exception as e:
+        print(f"Erreur générale lors de l'ajout du visage: {e}")
+    
+    return redirect(url_for('index'))
+
+# Point d'entrée principal
+if __name__ == '__main__':
+    # Créer les répertoires nécessaires s'ils n'existent pas
+    os.makedirs(os.path.join('dataset', 'connu'), exist_ok=True)
+    os.makedirs(os.path.join('dataset', 'inconnu'), exist_ok=True)
+    os.makedirs(os.path.join('dataset', 'features'), exist_ok=True)
+    os.makedirs(os.path.join('dataset', 'features_fr'), exist_ok=True)
+    
+    # Charger les visages connus au démarrage
+    load_known_faces()
+    
+    print("Serveur de biométrie faciale démarré sur http://localhost:5000") 
+    print("Utilisez Ctrl+C pour arrêter le serveur")
+    
+    # Démarrer l'application Flask
+    app.run(host='0.0.0.0', port=5000, debug=True)
