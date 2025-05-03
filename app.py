@@ -30,6 +30,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from features import extract_features_opencv, load_face_features, save_face_features, identify_person, process_known_faces
 from features_fr import extract_features_face_recognition, load_face_features_fr, save_face_features_fr, identify_person_fr, process_known_faces_fr
 
+
 app.secret_key = 'votre_cle_secrete_tres_secrete' 
 # Décorateur pour les routes nécessitant une authentification
 def login_required(f):
@@ -87,6 +88,21 @@ if not os.path.exists(USERS_FILE):
     save_users(default_users)
 
 # Modifiez la route /login pour utiliser le système JSON
+# @app.route('/login', methods=['GET', 'POST'])
+# def login():
+#     if request.method == 'POST':
+#         username = request.form.get('username')
+#         password = request.form.get('password')
+        
+#         if verify_user(username, password):
+#             session['logged_in'] = True
+#             session['username'] = username
+#             flash('Connexion réussie!', 'success')
+#             return redirect(url_for('index'))
+#         else:
+#             flash('Identifiants incorrects. Veuillez réessayer.', 'danger')
+    
+#     return render_template('login.html')
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -99,6 +115,16 @@ def login():
             flash('Connexion réussie!', 'success')
             return redirect(url_for('index'))
         else:
+            # Enregistrer la tentative échouée
+            alert_data = {
+                'timestamp': datetime.datetime.now(),
+                'username_tentative': username,
+                'ip_address': request.remote_addr,
+                'type': 'tentative_connexion',
+                'status': 'echec'
+            }
+            save_alert(alert_data)
+            
             flash('Identifiants incorrects. Veuillez réessayer.', 'danger')
     
     return render_template('login.html')
@@ -127,6 +153,33 @@ def logout():
     session.clear()
     flash('Vous avez été déconnecté.', 'info')
     return redirect(url_for('login'))
+
+
+import datetime
+
+# Chemin du fichier JSON pour les alertes
+ALERTS_FILE = 'alerts.json'
+
+def save_alert(alert_data):
+    """Sauvegarde une nouvelle alerte dans le fichier JSON"""
+    try:
+        alerts = load_alerts()
+        alerts.append(alert_data)
+        with open(ALERTS_FILE, 'w') as f:
+            json.dump(alerts, f, indent=4, default=str)
+        get_alerts_count.cache_clear()
+    except Exception as e:
+        print(f"Erreur lors de la sauvegarde de l'alerte: {e}")
+
+def load_alerts():
+    """Charge les alertes depuis le fichier JSON"""
+    try:
+        if os.path.exists(ALERTS_FILE):
+            with open(ALERTS_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"Erreur lors du chargement des alertes: {e}")
+    return []
 # Variables globales
 camera = None
 camera_active = False
@@ -229,121 +282,45 @@ def capture_frames():
 
 # Fonction pour détecter les visages et reconnaître les personnes
 def detect_faces_opencv(frame):
-    global current_result, known_features_dict, known_features_fr_dict
-    
+    global current_result
     try:
-        # Vérifier si l'image est valide
-        if frame is None or frame.size == 0:
-            current_result = "Image de caméra invalide"
-            return frame
-            
-        # S'assurer que l'image est au format 8-bit
-        if frame.dtype != np.uint8:
-            frame = np.uint8(frame)
+        # Votre code de détection principal ici
         
-        if use_face_recognition:
+        if recognition_active:
             try:
-                # Utiliser face_recognition pour la détection et la reconnaissance
-                # Convertir l'image BGR (OpenCV) en RGB (face_recognition)
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                
-                # Détecter les visages
-                face_locations = face_recognition.face_locations(rgb_frame)
-                
-                # Dessiner un rectangle autour de chaque visage
-                for (top, right, bottom, left) in face_locations:
-                    cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
-                    
-                    if recognition_active:
-                        try:
-                            # Extraire les caractéristiques du visage détecté
-                            face_encodings = face_recognition.face_encodings(rgb_frame, [(top, right, bottom, left)])
-                            
-                            if len(face_encodings) > 0 and known_features_fr_dict:
-                                # Identifier la personne
-                                person_name, confidence = identify_person_fr(face_encodings[0], known_features_fr_dict)
-                                
-                                # Afficher le nom de la personne et la confiance
-                                label = f"{person_name} ({confidence:.2f})"
-                                cv2.putText(frame, label, (left, top-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                                
-                                if person_name != "Inconnu":
-                                    current_result = f"Personne identifiée: {person_name} (confiance: {confidence:.2f})"
-                                else:
-                                    current_result = "Personne inconnue détectée"
-                            else:
-                                cv2.putText(frame, "Inconnu", (left, top-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                                current_result = "Personne inconnue détectée"
-                        except Exception as e:
-                            print(f"Erreur lors de la reconnaissance: {e}")
-                            cv2.putText(frame, "Erreur reconnaissance", (left, top-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                            current_result = f"Erreur de reconnaissance: {str(e)[:30]}"
-                    else:
-                        current_result = f"{len(face_locations)} visage(s) détecté(s)"
-                
-                if len(face_locations) == 0:
-                    current_result = "Aucun visage détecté"
+                # Votre code de reconnaissance faciale
+                if person_name == "Inconnu":
+                    # Enregistrement de l'alerte
+                    alert_data = {
+                        'timestamp': datetime.datetime.now().isoformat(),
+                        'ip_address': request.remote_addr if request else 'N/A',
+                        'type': 'visage_inconnu',
+                        'status': 'alerte'
+                    }
+                    save_alert(alert_data)
             except Exception as e:
-                print(f"Erreur avec face_recognition: {e}")
-                # Fallback à OpenCV en cas d'erreur
-                use_opencv_fallback = True
-                current_result = f"Erreur face_recognition: {str(e)[:30]}"
-                # Continuer avec la méthode OpenCV ci-dessous
-        else:
-            use_opencv_fallback = True
-        
-        # Utiliser OpenCV si spécifié ou en cas d'erreur avec face_recognition
-        if not use_face_recognition or 'use_opencv_fallback' in locals():
-            # Convertir en niveaux de gris
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            
-            # Utiliser le détecteur de visage Haar Cascade
-            face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-            faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-            
-            # Dessiner un rectangle autour de chaque visage
-            for (x, y, w, h) in faces:
-                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                print(f"Erreur reconnaissance faciale: {e}")
                 
-                if recognition_active:
-                    try:
-                        # Extraire les caractéristiques du visage détecté
-                        face_img = frame[y:y+h, x:x+w]
-                        features = extract_features_opencv(face_img)
-                        
-                        if features is not None and known_features_dict:
-                            # Identifier la personne
-                            person_name = identify_person(features, known_features_dict)
-                            
-                            # Afficher le nom de la personne
-                            cv2.putText(frame, person_name, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                            
-                            if person_name != "Inconnu":
-                                current_result = f"Personne identifiée: {person_name}"
-                            else:
-                                current_result = "Personne inconnue détectée"
-                        else:
-                            cv2.putText(frame, "Inconnu", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                            current_result = "Personne inconnue détectée"
-                    except Exception as e:
-                        print(f"Erreur lors de la reconnaissance OpenCV: {e}")
-                        cv2.putText(frame, "Erreur", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                        current_result = f"Erreur: {str(e)[:30]}"
-                else:
-                    current_result = f"{len(faces)} visage(s) détecté(s)"
-            
-            if len(faces) == 0:
-                current_result = "Aucun visage détecté"
-    
     except Exception as e:
-        print(f"Erreur générale dans detect_faces_opencv: {e}")
-        current_result = f"Erreur: {str(e)[:30]}"
-    
-    # Afficher le résultat sur l'image
-    cv2.putText(frame, current_result, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-    
+        print(f"Erreur détection visage: {e}")
+        
     return frame
 
+
+@app.before_request
+def check_authorization():
+    if request.endpoint in ['add_face', 'view_alerts']:
+        if session.get('username') != 'admin':
+            alert_data = {
+                'timestamp': datetime.datetime.now(),
+                'attempted_route': request.endpoint,
+                'ip_address': request.remote_addr,
+                'type': 'tentative_acces_non_autorise',
+                'status': 'bloque'
+            }
+            save_alert(alert_data)
+            flash('Accès non autorisé', 'danger')
+            return redirect(url_for('index'))
 # Fonction pour générer le flux vidéo
 def generate_frames():
     global frame_global
@@ -368,15 +345,65 @@ def generate_frames():
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
-# Routes Flask
+
+from flask import Flask, render_template, Response, request, redirect, url_for, session, flash
+import json
+import os
+
 @app.route('/')
 @login_required
 def index():
-    return render_template('index.html', detection_active=detection_active, 
-                          recognition_active=recognition_active,
-                          camera_active=camera_active,
-                          result=current_result,
-                          known_faces=known_face_names)
+    # Calculer le nombre d'alertes
+    alert_count = len(load_alerts()) if session.get('username') == 'admin' else 0
+    
+    return render_template('index.html',
+                         detection_active=detection_active,
+                         recognition_active=recognition_active,
+                         camera_active=camera_active,
+                         result=current_result,
+                         known_faces=known_face_names,
+                         alert_count=alert_count)  # Variable au singulier
+
+
+def load_alerts():
+    try:
+        if os.path.exists(ALERTS_FILE):
+            with open(ALERTS_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"Error loading alerts: {e}")
+    return []
+
+@app.route('/view_alerts')
+@login_required
+def view_alerts():
+    if session.get('username') != 'admin':
+        abort(403)
+    return render_template('alerts.html', alerts=load_alerts())
+
+@app.context_processor
+def inject_alert_count():
+    return {
+        'alert_count': len(load_alerts()) if session.get('username') == 'admin' else 0
+    }
+
+
+@app.context_processor
+def inject_alerts():
+    if session.get('username') == 'admin':
+        return dict(alerts_count=len(load_alerts()))
+    return dict(alerts_count=0)
+from functools import lru_cache
+
+@lru_cache(maxsize=1)
+def get_alerts_count():
+    return len(load_alerts())
+@app.context_processor
+def inject_alerts():
+    if session.get('username') == 'admin':
+        return dict(alerts_count=get_alerts_count())
+    return dict(alerts_count=0)
+
 
 @app.route('/video_feed')
 @login_required
@@ -418,7 +445,7 @@ def toggle_recognition():
         load_known_faces()
     
     return redirect(url_for('index'))
-
+    
 @app.route('/add_face', methods=['POST'])
 @login_required
 def add_face():

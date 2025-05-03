@@ -126,6 +126,16 @@
                 <a href="{{ url_for('logout') }}" class="btn btn-danger">Déconnexion</a>
             {% endif %}
         </div>
+        {% if session.username == 'admin' %}
+        <a href="{{ url_for('view_alerts') }}" class="nav-link">
+            <i class="bi bi-shield-exclamation"></i> Alertes
+            {% if alert_count > 0 %}
+            <span class="badge bg-danger">{{ alert_count }}</span>
+            {% endif %}
+        </a>
+        {% endif %}
+        
+
         <div class="controls">
             <form action="/toggle_camera" method="post">
                 {% if camera_active %}

@@ -1,0 +1,33 @@
+{% extends "base.html" %}  <!-- Si vous avez un template de base -->
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Journal des alertes de sécurité</h2>
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Date/Heure</th>
+                <th>Utilisateur</th>
+                <th>IP</th>
+                <th>Type</th>
+                <th>Statut</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for alert in alerts %}
+            <tr>
+                <td>{{ alert.timestamp }}</td>
+                <td>{{ alert.username_tentative }}</td>
+                <td>{{ alert.ip_address }}</td>
+                <td>{{ alert.type }}</td>
+                <td>
+                    <span class="badge bg-{{ 'danger' if alert.status == 'echec' else 'success' }}">
+                        {{ alert.status }}
+                    </span>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
