@@ -87,22 +87,6 @@ if not os.path.exists(USERS_FILE):
     }
     save_users(default_users)
 
-# Modifiez la route /login pour utiliser le système JSON
-# @app.route('/login', methods=['GET', 'POST'])
-# def login():
-#     if request.method == 'POST':
-#         username = request.form.get('username')
-#         password = request.form.get('password')
-        
-#         if verify_user(username, password):
-#             session['logged_in'] = True
-#             session['username'] = username
-#             flash('Connexion réussie!', 'success')
-#             return redirect(url_for('index'))
-#         else:
-#             flash('Identifiants incorrects. Veuillez réessayer.', 'danger')
-    
-#     return render_template('login.html')
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -279,34 +263,226 @@ def capture_frames():
         
         # Petite pause pour réduire l'utilisation CPU
         time.sleep(0.03)
-
-# Fonction pour détecter les visages et reconnaître les personnes
 def detect_faces_opencv(frame):
-    global current_result
+    global current_result, known_features_dict, known_features_fr_dict
+    
     try:
-        # Votre code de détection principal ici
+        if frame is None or frame.size == 0:
+            current_result = "Image de caméra invalide"
+            return frame
+            
+        if frame.dtype != np.uint8:
+            frame = np.uint8(frame)
         
-        if recognition_active:
+        # Initialisation des variables
+        faces_detected = 0
+        person_name = None
+        confidence = 0.0
+        
+        if use_face_recognition:
             try:
-                # Votre code de reconnaissance faciale
-                if person_name == "Inconnu":
-                    # Enregistrement de l'alerte
-                    alert_data = {
-                        'timestamp': datetime.datetime.now().isoformat(),
-                        'ip_address': request.remote_addr if request else 'N/A',
-                        'type': 'visage_inconnu',
-                        'status': 'alerte'
-                    }
-                    save_alert(alert_data)
-            except Exception as e:
-                print(f"Erreur reconnaissance faciale: {e}")
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                face_locations = face_recognition.face_locations(rgb_frame)
+                faces_detected = len(face_locations)
                 
-    except Exception as e:
-        print(f"Erreur détection visage: {e}")
+                for (top, right, bottom, left) in face_locations:
+                    cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
+                    
+                    if recognition_active and known_features_fr_dict:
+                        face_encodings = face_recognition.face_encodings(rgb_frame, [(top, right, bottom, left)])
+                        
+                        if face_encodings:
+                            person_name, confidence = identify_person_fr(face_encodings[0], known_features_fr_dict)
+                            label = f"{person_name} ({confidence:.2f})"
+                            cv2.putText(frame, label, (left, top-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                            
+                            if person_name == "Inconnu":
+                                alert_data = {
+                                    'timestamp': datetime.datetime.now().isoformat(),
+                                    'type': 'visage_inconnu',
+                                    'status': 'alerte',
+                                    'confidence': float(confidence),
+                                    'position': {'top': top, 'right': right, 'bottom': bottom, 'left': left},
+                                    'image': base64.b64encode(cv2.imencode('.jpg', frame[top:bottom, left:right])[1]).decode('utf-8')
+                                }
+                                save_alert(alert_data)
+                                current_result = "Alerte: Visage non reconnu!"
+                            else:
+                                current_result = f"Personne reconnue: {person_name}"
+                        else:
+                            cv2.putText(frame, "Inconnu", (left, top-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                            current_result = "Visage non reconnu"
+                    else:
+                        current_result = f"{faces_detected} visage(s) détecté(s)"
+                
+            except Exception as e:
+                print(f"Erreur face_recognition: {str(e)}")
+                current_result = "Erreur de reconnaissance"
         
+        # Fallback OpenCV
+        if not use_face_recognition or faces_detected == 0:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+            faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+            faces_detected = len(faces)
+            
+            for (x, y, w, h) in faces:
+                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                
+                if recognition_active and known_features_dict:
+                    try:
+                        face_img = frame[y:y+h, x:x+w]
+                        features = extract_features_opencv(face_img)
+                        
+                        if features is not None:
+                            person_name = identify_person(features, known_features_dict)
+                            cv2.putText(frame, person_name, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                            
+                            if person_name == "Inconnu":
+                                alert_data = {
+                                    'timestamp': datetime.datetime.now().isoformat(),
+                                    'type': 'visage_inconnu',
+                                    'status': 'alerte',
+                                    'position': {'x': x, 'y': y, 'w': w, 'h': h},
+                                    'image': base64.b64encode(cv2.imencode('.jpg', face_img)[1]).decode('utf-8')
+                                }
+                                save_alert(alert_data)
+                                current_result = "Alerte: Visage non reconnu!"
+                            else:
+                                current_result = f"Personne reconnue: {person_name}"
+                        else:
+                            cv2.putText(frame, "Inconnu", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                            current_result = "Visage non reconnu"
+                    except Exception as e:
+                        print(f"Erreur reconnaissance OpenCV: {str(e)}")
+                        current_result = "Erreur de reconnaissance"
+                else:
+                    current_result = f"{faces_detected} visage(s) détecté(s)"
+        
+        if faces_detected == 0:
+            current_result = "Aucun visage détecté"
+            
+    except Exception as e:
+        print(f"Erreur générale: {str(e)}")
+        current_result = "Erreur de traitement"
+    
+    cv2.putText(frame, current_result, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
     return frame
-
-
+# def detect_faces_opencv(frame):
+#     global current_result, known_features_dict, known_features_fr_dict
+    
+#     try:
+#         # Vérifier si l'image est valide
+#         if frame is None or frame.size == 0:
+#             current_result = "Image de caméra invalide"
+#             return frame
+            
+#         # S'assurer que l'image est au format 8-bit
+#         if frame.dtype != np.uint8:
+#             frame = np.uint8(frame)
+        
+#         if use_face_recognition:
+#             try:
+#                 # Utiliser face_recognition pour la détection et la reconnaissance
+#                 # Convertir l'image BGR (OpenCV) en RGB (face_recognition)
+#                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                
+#                 # Détecter les visages
+#                 face_locations = face_recognition.face_locations(rgb_frame)
+                
+#                 # Dessiner un rectangle autour de chaque visage
+#                 for (top, right, bottom, left) in face_locations:
+#                     cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
+                    
+#                     if recognition_active:
+#                         try:
+#                             # Extraire les caractéristiques du visage détecté
+#                             face_encodings = face_recognition.face_encodings(rgb_frame, [(top, right, bottom, left)])
+                            
+#                             if len(face_encodings) > 0 and known_features_fr_dict:
+#                                 # Identifier la personne
+#                                 person_name, confidence = identify_person_fr(face_encodings[0], known_features_fr_dict)
+                                
+#                                 # Afficher le nom de la personne et la confiance
+#                                 label = f"{person_name} ({confidence:.2f})"
+#                                 cv2.putText(frame, label, (left, top-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                                
+#                                 if person_name != "Inconnu":
+#                                     current_result = f"Personne identifiée: {person_name} (confiance: {confidence:.2f})"
+#                                 else:
+#                                     current_result = "Personne inconnue détectée"
+#                             else:
+#                                 cv2.putText(frame, "Inconnu", (left, top-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+#                                 current_result = "Personne inconnue détectée"
+#                         except Exception as e:
+#                             print(f"Erreur lors de la reconnaissance: {e}")
+#                             cv2.putText(frame, "Erreur reconnaissance", (left, top-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+#                             current_result = f"Erreur de reconnaissance: {str(e)[:30]}"
+#                     else:
+#                         current_result = f"{len(face_locations)} visage(s) détecté(s)"
+                
+#                 if len(face_locations) == 0:
+#                     current_result = "Aucun visage détecté"
+#             except Exception as e:
+#                 print(f"Erreur avec face_recognition: {e}")
+#                 # Fallback à OpenCV en cas d'erreur
+#                 use_opencv_fallback = True
+#                 current_result = f"Erreur face_recognition: {str(e)[:30]}"
+#                 # Continuer avec la méthode OpenCV ci-dessous
+#         else:
+#             use_opencv_fallback = True
+        
+#         # Utiliser OpenCV si spécifié ou en cas d'erreur avec face_recognition
+#         if not use_face_recognition or 'use_opencv_fallback' in locals():
+#             # Convertir en niveaux de gris
+#             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            
+#             # Utiliser le détecteur de visage Haar Cascade
+#             face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+#             faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+            
+#             # Dessiner un rectangle autour de chaque visage
+#             for (x, y, w, h) in faces:
+#                 cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                
+#                 if recognition_active:
+#                     try:
+#                         # Extraire les caractéristiques du visage détecté
+#                         face_img = frame[y:y+h, x:x+w]
+#                         features = extract_features_opencv(face_img)
+                        
+#                         if features is not None and known_features_dict:
+#                             # Identifier la personne
+#                             person_name = identify_person(features, known_features_dict)
+                            
+#                             # Afficher le nom de la personne
+#                             cv2.putText(frame, person_name, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                            
+#                             if person_name != "Inconnu":
+#                                 current_result = f"Personne identifiée: {person_name}"
+#                             else:
+#                                 current_result = "Personne inconnue détectée"
+#                         else:
+#                             cv2.putText(frame, "Inconnu", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+#                             current_result = "Personne inconnue détectée"
+#                     except Exception as e:
+#                         print(f"Erreur lors de la reconnaissance OpenCV: {e}")
+#                         cv2.putText(frame, "Erreur", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+#                         current_result = f"Erreur: {str(e)[:30]}"
+#                 else:
+#                     current_result = f"{len(faces)} visage(s) détecté(s)"
+            
+#             if len(faces) == 0:
+#                 current_result = "Aucun visage détecté"
+    
+#     except Exception as e:
+#         print(f"Erreur générale dans detect_faces_opencv: {e}")
+#         current_result = f"Erreur: {str(e)[:30]}"
+    
+#     # Afficher le résultat sur l'image
+#     cv2.putText(frame, current_result, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+    
+#     return frame
 @app.before_request
 def check_authorization():
     if request.endpoint in ['add_face', 'view_alerts']:
@@ -410,6 +586,7 @@ def inject_alerts():
 def video_feed():
     return Response(generate_frames(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
+
 
 @app.route('/toggle_camera', methods=['POST'])
 @login_required

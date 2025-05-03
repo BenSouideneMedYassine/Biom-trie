@@ -1,1 +1,25 @@
-[]
+[
+    {
+        "timestamp": "2025-05-03 23:24:33.456789",
+        "username_tentative": "Yassine",
+        "ip_address": "192.168.1.100",
+        "type": "tentative_connexion",
+        "status": "echec"
+    },
+    {
+        "timestamp": "2025-05-03 23:25:15.123456",
+        "username_tentative": "Yassine",
+        "ip_address": "192.168.1.101",
+        "type": "tentative_connexion", 
+        "status": "echec"
+    },
+    {
+        "timestamp": "2025-05-03 23:30:22.789012",
+        "username_tentative": "Yassine",
+        "ip_address": "192.168.1.102",
+        "type": "visage_inconnu",
+        "status": "alerte",
+        "image": "base64encodedstring...",
+        "confidence": 0.35
+    }
+]
