@@ -120,7 +120,12 @@
 <body>
     <div class="container">
         <h1>Système de Biométrie Faciale</h1>
-        
+        <div style="position: absolute; top: 10px; right: 10px;">
+            {% if session.logged_in %}
+                <span style="margin-right: 15px;">Connecté en tant que <strong>{{ session.username }}</strong></span>
+                <a href="{{ url_for('logout') }}" class="btn btn-danger">Déconnexion</a>
+            {% endif %}
+        </div>
         <div class="controls">
             <form action="/toggle_camera" method="post">
                 {% if camera_active %}
@@ -155,7 +160,7 @@
             <img src="{{ url_for('video_feed') }}" class="video-feed" alt="Flux vidéo">
         </div>
         
-        {% if camera_active %}
+        {% if camera_active and session.username == 'admin' %}
         <div class="add-face-form">
             <h3>Ajouter un visage au dataset</h3>
             <form action="/add_face" method="post">

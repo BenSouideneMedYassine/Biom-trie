@@ -8,10 +8,125 @@ import base64
 import face_recognition
 from features import extract_features_opencv, load_face_features, save_face_features, identify_person, process_known_faces
 from features_fr import extract_features_face_recognition, load_face_features_fr, save_face_features_fr, identify_person_fr, process_known_faces_fr
-
+from flask import session  # Ajoutez ceci avec les autres imports Flask
 # Initialisation de l'application Flask
 app = Flask(__name__)
+import json
+import os
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 
+from flask import Flask, render_template, Response, request, redirect, url_for, session, flash
+from functools import wraps
+import cv2
+import numpy as np
+import os
+import time
+import threading
+import base64
+import face_recognition
+import json
+from werkzeug.security import generate_password_hash, check_password_hash
+from features import extract_features_opencv, load_face_features, save_face_features, identify_person, process_known_faces
+from features_fr import extract_features_face_recognition, load_face_features_fr, save_face_features_fr, identify_person_fr, process_known_faces_fr
+
+app.secret_key = 'votre_cle_secrete_tres_secrete' 
+# Décorateur pour les routes nécessitant une authentification
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'logged_in' not in session:
+            flash('Veuillez vous connecter pour accéder à cette page.', 'danger')
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+# Ajoutez cette section après les autres imports
+# Chemin du fichier JSON pour stocker les utilisateurs
+USERS_FILE = 'users.json'
+
+# Fonctions pour gérer les utilisateurs
+def load_users():
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_users(users):
+    with open(USERS_FILE, 'w') as f:
+        json.dump(users, f, indent=4)
+
+def add_user(username, password):
+    users = load_users()
+    if username in users:
+        return False  # L'utilisateur existe déjà
+    users[username] = {
+        'password': generate_password_hash(password),
+        'role': 'user'  # Vous pouvez ajouter des rôles si nécessaire
+    }
+    save_users(users)
+    return True
+
+def verify_user(username, password):
+    users = load_users()
+    if username not in users:
+        return False
+    return check_password_hash(users[username]['password'], password)
+
+# Ajoutez quelques utilisateurs par défaut au premier lancement
+if not os.path.exists(USERS_FILE):
+    default_users = {
+        'admin': {
+            'password': generate_password_hash('admin'),
+            'role': 'admin'
+        },
+        'user': {
+            'password': generate_password_hash('user'),
+            'role': 'user'
+        }
+    }
+    save_users(default_users)
+
+# Modifiez la route /login pour utiliser le système JSON
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        if verify_user(username, password):
+            session['logged_in'] = True
+            session['username'] = username
+            flash('Connexion réussie!', 'success')
+            return redirect(url_for('index'))
+        else:
+            flash('Identifiants incorrects. Veuillez réessayer.', 'danger')
+    
+    return render_template('login.html')
+
+# Ajoutez une route pour l'inscription
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        
+        if password != confirm_password:
+            flash('Les mots de passe ne correspondent pas.', 'danger')
+        elif add_user(username, password):
+            flash('Inscription réussie! Vous pouvez maintenant vous connecter.', 'success')
+            return redirect(url_for('login'))
+        else:
+            flash("Ce nom d'utilisateur est déjà pris.", 'danger')
+    
+    return render_template('register.html')
+
+# Modifiez la route /logout pour effacer plus d'informations de session
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash('Vous avez été déconnecté.', 'info')
+    return redirect(url_for('login'))
 # Variables globales
 camera = None
 camera_active = False
@@ -255,6 +370,7 @@ def generate_frames():
 
 # Routes Flask
 @app.route('/')
+@login_required
 def index():
     return render_template('index.html', detection_active=detection_active, 
                           recognition_active=recognition_active,
@@ -263,11 +379,13 @@ def index():
                           known_faces=known_face_names)
 
 @app.route('/video_feed')
+@login_required
 def video_feed():
     return Response(generate_frames(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/toggle_camera', methods=['POST'])
+@login_required
 def toggle_camera():
     global camera_active, camera
     
@@ -283,12 +401,14 @@ def toggle_camera():
     return redirect(url_for('index'))
 
 @app.route('/toggle_detection', methods=['POST'])
+@login_required
 def toggle_detection():
     global detection_active
     detection_active = not detection_active
     return redirect(url_for('index'))
 
 @app.route('/toggle_recognition', methods=['POST'])
+@login_required
 def toggle_recognition():
     global recognition_active
     recognition_active = not recognition_active
@@ -300,6 +420,7 @@ def toggle_recognition():
     return redirect(url_for('index'))
 
 @app.route('/add_face', methods=['POST'])
+@login_required
 def add_face():
     global frame_global, known_features_dict, known_features_fr_dict
     
