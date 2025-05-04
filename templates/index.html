@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -120,12 +121,35 @@
 <body>
     <div class="container">
         <h1>Système de Biométrie Faciale</h1>
+        
         <div style="position: absolute; top: 10px; right: 10px;">
             {% if session.logged_in %}
                 <span style="margin-right: 15px;">Connecté en tant que <strong>{{ session.username }}</strong></span>
                 <a href="{{ url_for('logout') }}" class="btn btn-danger">Déconnexion</a>
             {% endif %}
         </div>
+        
+           <!-- {% if session.username == 'admin' %}
+           <li class="nav-item">
+            <a class="nav-link" href="{{ url_for('view_alerts') }}">Alertes de sécurité</a>
+           </li>
+           {% endif %} -->
+           {% set alert_count = get_alerts_count() %}
+           {% if session.username == 'admin' %}
+           {% set alert_count = load_alerts()|length %}
+           <li class="nav-item">
+               <a class="nav-link position-relative" href="{{ url_for('view_alerts') }}">
+                   Alertes de sécurité
+                   {% if alert_count > 0 %}
+                       <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                           {{ alert_count }}
+                           <span class="visually-hidden">alertes</span>
+                       </span>
+                   {% endif %}
+               </a>
+           </li>
+           {% endif %}
+
         <div class="controls">
             <form action="/toggle_camera" method="post">
                 {% if camera_active %}
@@ -187,4 +211,5 @@
         </div>
     </div>
 </body>
+
 </html>

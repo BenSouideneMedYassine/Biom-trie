@@ -1,0 +1,218 @@
+<!-- templates/alerts.html
+
+<div class="container mt-4">
+    <h2>Journal des alertes de sécurité</h2>
+    <p>Tentatives de connexion échouées</p>
+    
+    <div class="table-responsive">
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Date/Heure</th>
+                    <th>Nom d'utilisateur</th>
+                    <th>Adresse IP</th>
+                    <th>Type</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for alert in alerts %}
+                <tr>
+                    <td>{{ alert.timestamp }}</td>
+                    <td>{{ alert.username }}</td>
+                    <td>{{ alert.ip_address }}</td>
+                    <td>
+                        <span class="badge bg-danger">Tentative échouée</span>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="4" class="text-center">Aucune alerte enregistrée</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div> -->
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="card shadow-lg">
+        <div class="card-header bg-danger text-white">
+            <div class="d-flex justify-content-between align-items-center">
+                <h2 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Journal des alertes de sécurité</h2>
+                <div>
+                    <button class="btn btn-outline-light btn-sm" data-bs-toggle="modal" data-bs-target="#deleteAllModal">
+                        <i class="fas fa-trash-alt me-1"></i> Tout supprimer
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-dark">
+                        <tr>
+                            <th width="20%">Date/Heure</th>
+                            <th width="20%">Nom d'utilisateur</th>
+                            <th width="20%">Adresse IP</th>
+                            <th width="20%">Type</th>
+                            <th width="20%" class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for alert in alerts %}
+                        <tr>
+                            <td>
+                                <i class="far fa-clock text-muted me-2"></i>
+                                {{ alert.timestamp }}
+                            </td>
+                            <td>
+                                <span class="fw-bold">{{ alert.username }}</span>
+                            </td>
+                            <td>
+                                <span class="badge bg-secondary">
+                                    <i class="fas fa-network-wired me-1"></i> {{ alert.ip_address }}
+                                </span>
+                            </td>
+                            <td>
+                                <span class="badge bg-danger">
+                                    <i class="fas fa-exclamation-circle me-1"></i> Tentative échouée
+                                </span>
+                            </td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-danger delete-btn" data-id="{{ loop.index0 }}">
+                                    <i class="fas fa-trash-alt"></i> Supprimer
+                                </button>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="text-center py-4">
+                                <div class="text-muted">
+                                    <i class="far fa-check-circle fa-3x mb-3"></i>
+                                    <h4>Aucune alerte enregistrée</h4>
+                                    <p class="mb-0">Toutes les connexions sont sécurisées</p>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div class="card-footer bg-light">
+            <div class="d-flex justify-content-between">
+                <div class="text-muted">
+                    <small>Dernière mise à jour : {{ now.strftime('%Y-%m-%d %H:%M:%S') }}</small>
+                </div>
+                <div>
+                    <span class="badge bg-primary">
+                        Total : {{ alerts|length }} alerte(s)
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de confirmation pour supprimer toutes les alertes -->
+<div class="modal fade" id="deleteAllModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="fas fa-exclamation-triangle me-2"></i>Confirmation</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Êtes-vous sûr de vouloir supprimer toutes les alertes ? Cette action est irréversible.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-1"></i> Annuler
+                </button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteAll">
+                    <i class="fas fa-trash-alt me-1"></i> Tout supprimer
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de confirmation pour supprimer une alerte -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="fas fa-exclamation-triangle me-2"></i>Confirmation</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Êtes-vous sûr de vouloir supprimer cette alerte ? Cette action est irréversible.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-1"></i> Annuler
+                </button>
+                <button type="button" class="btn btn-danger" id="confirmDelete">
+                    <i class="fas fa-trash-alt me-1"></i> Supprimer
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Gestion de la suppression d'une alerte
+    const deleteButtons = document.querySelectorAll('.delete-btn');
+    let alertToDelete = null;
+    
+    deleteButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            alertToDelete = this.getAttribute('data-id');
+            $('#deleteModal').modal('show');
+        });
+    });
+    
+    document.getElementById('confirmDelete').addEventListener('click', function() {
+        if (alertToDelete !== null) {
+            fetch('/delete_alert', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ alert_index: alertToDelete })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                }
+            });
+        }
+    });
+    
+    // Gestion de la suppression de toutes les alertes
+    document.getElementById('confirmDeleteAll').addEventListener('click', function() {
+        fetch('/delete_all_alerts', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

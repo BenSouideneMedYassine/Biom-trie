@@ -1,0 +1,14 @@
+[
+    {
+        "timestamp": "2025-05-04 01:59:28",
+        "username": "admin",
+        "ip_address": "127.0.0.1",
+        "type": "failed_login"
+    },
+    {
+        "timestamp": "2025-05-04 01:59:40",
+        "username": "Yassine",
+        "ip_address": "127.0.0.1",
+        "type": "failed_login"
+    }
+]

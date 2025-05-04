@@ -29,8 +29,11 @@ import json
 from werkzeug.security import generate_password_hash, check_password_hash
 from features import extract_features_opencv, load_face_features, save_face_features, identify_person, process_known_faces
 from features_fr import extract_features_face_recognition, load_face_features_fr, save_face_features_fr, identify_person_fr, process_known_faces_fr
+# from flask_wtf.csrf import CSRFProtect
 
-app.secret_key = 'votre_cle_secrete_tres_secrete' 
+app.secret_key = 'votre_cle_secrete_tres_secrete'
+# csrf = CSRFProtect(app)  # Active la protection CSRF globale
+
 # Décorateur pour les routes nécessitant une authentification
 def login_required(f):
     @wraps(f)
@@ -87,9 +90,48 @@ if not os.path.exists(USERS_FILE):
     save_users(default_users)
 
 # Modifiez la route /login pour utiliser le système JSON
+# @app.route('/login', methods=['GET', 'POST'])
+# def login():
+#     if request.method == 'POST':
+#         username = request.form.get('username')
+#         password = request.form.get('password')
+        
+#         if verify_user(username, password):
+#             session['logged_in'] = True
+#             session['username'] = username
+#             flash('Connexion réussie!', 'success')
+#             return redirect(url_for('index'))
+#         else:
+#             flash('Identifiants incorrects. Veuillez réessayer.', 'danger')
+    
+#     return render_template('login.html')
+# Ajoutez cette fonction
+def count_recent_failed_attempts(ip_address, minutes=5):
+    alerts = load_alerts()
+    now = time.time()
+    count = 0
+    
+    for alert in reversed(alerts):
+        alert_time = time.mktime(time.strptime(alert['timestamp'], "%Y-%m-%d %H:%M:%S"))
+        if (now - alert_time) < (minutes * 60) and alert['ip_address'] == ip_address:
+            count += 1
+        else:
+            break
+    
+    return count
+
+# Modifiez la route login
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
+        ip_address = request.remote_addr
+        max_attempts = 5
+        
+        # Vérifier le nombre de tentatives récentes
+        if count_recent_failed_attempts(ip_address) >= max_attempts:
+            flash('Trop de tentatives de connexion. Veuillez réessayer plus tard.', 'danger')
+            return redirect(url_for('login'))
+        
         username = request.form.get('username')
         password = request.form.get('password')
         
@@ -99,9 +141,138 @@ def login():
             flash('Connexion réussie!', 'success')
             return redirect(url_for('index'))
         else:
-            flash('Identifiants incorrects. Veuillez réessayer.', 'danger')
+            save_alert(username, ip_address)
+            remaining_attempts = max_attempts - count_recent_failed_attempts(ip_address) - 1
+            flash(f'Identifiants incorrects. Il vous reste {remaining_attempts} tentatives.', 'danger')
     
     return render_template('login.html')
+def purge_old_alerts(days=30):
+    alerts = load_alerts()
+    now = time.time()
+    cutoff = now - (days * 24 * 60 * 60)
+    
+    filtered_alerts = []
+    for alert in alerts:
+        alert_time = time.mktime(time.strptime(alert['timestamp'], "%Y-%m-%d %H:%M:%S"))
+        if alert_time > cutoff:
+            filtered_alerts.append(alert)
+    
+    with open(ALERTS_FILE, 'w') as f:
+        json.dump(filtered_alerts, f, indent=4)
+
+
+
+
+@app.context_processor
+def inject_alerts_count():
+    if session.get('username') == 'admin':
+        return dict(load_alerts=load_alerts)
+    return dict(load_alerts=lambda: [])
+# Modifiez votre fonction load_alerts pour marquer les nouvelles alertes
+def load_alerts():
+    if os.path.exists(ALERTS_FILE):
+        with open(ALERTS_FILE, 'r') as f:
+            try:
+                alerts = json.load(f)
+                # Marquer les alertes non vues (par exemple celles des dernières 24h)
+                now = time.time()
+                for alert in alerts:
+                    alert_time = time.mktime(time.strptime(alert['timestamp'], "%Y-%m-%d %H:%M:%S"))
+                    alert['is_new'] = (now - alert_time) < (24 * 60 * 60)
+                return alerts
+            except json.JSONDecodeError:
+                return []
+    return []
+from functools import lru_cache
+import time
+
+@lru_cache(maxsize=1)
+def get_alerts_count():
+    # Le cache expire après 60 secondes
+    time.sleep(0.1)  # Simule un chargement lent
+    return len(load_alerts())
+
+# Puis dans le context processor
+@app.context_processor
+def inject_alerts_count():
+    if session.get('username') == 'admin':
+        return dict(get_alerts_count=get_alerts_count)
+    return dict(get_alerts_count=lambda: 0)
+
+@app.route('/delete_alert', methods=['POST'])
+@login_required
+def delete_alert():
+    if session.get('username') != 'admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    
+    try:
+        alert_index = int(request.json.get('alert_index'))
+        alerts = load_alerts()
+        
+        if 0 <= alert_index < len(alerts):
+            alerts.pop(alert_index)
+            with open(ALERTS_FILE, 'w') as f:
+                json.dump(alerts, f, indent=4)
+            return jsonify({'success': True})
+        
+        return jsonify({'success': False, 'error': 'Invalid index'}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/delete_all_alerts', methods=['POST'])
+@login_required
+def delete_all_alerts():
+    if session.get('username') != 'admin':
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+    
+    try:
+        with open(ALERTS_FILE, 'w') as f:
+            json.dump([], f)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+# Appeler cette fonction périodiquement ou au démarrage
+
+# Ajoutez cette constante avec les autres au début du fichier
+ALERTS_FILE = 'alerts.json'
+
+# Fonction pour charger les alertes
+def load_alerts():
+    if os.path.exists(ALERTS_FILE):
+        with open(ALERTS_FILE, 'r') as f:
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                return []
+    return []
+
+# Fonction pour sauvegarder une nouvelle alerte
+def save_alert(username, ip_address):
+    alerts = load_alerts()
+    new_alert = {
+        'timestamp': time.strftime("%Y-%m-%d %H:%M:%S"),
+        'username': username,
+        'ip_address': ip_address,
+        'type': 'failed_login'
+    }
+    alerts.append(new_alert)
+    
+    # Garder seulement les 100 dernières alertes pour éviter un fichier trop gros
+    alerts = alerts[-100:]
+    
+    with open(ALERTS_FILE, 'w') as f:
+        json.dump(alerts, f, indent=4)
+from datetime import datetime
+
+
+@app.route('/alerts')
+@login_required
+def view_alerts():
+    alerts = load_alerts()
+    alerts.reverse()  # Inversion en place
+    return render_template('alerts.html',
+                         alerts=alerts,
+                         now=datetime.now())
 
 # Ajoutez une route pour l'inscription
 @app.route('/register', methods=['GET', 'POST'])
