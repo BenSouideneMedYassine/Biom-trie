@@ -10,5 +10,17 @@
         "username": "Yassine",
         "ip_address": "127.0.0.1",
         "type": "failed_login"
+    },
+    {
+        "timestamp": "2025-05-04 02:33:36",
+        "username": "Admin",
+        "ip_address": "192.168.143.98",
+        "type": "failed_login"
+    },
+    {
+        "timestamp": "2025-05-04 09:33:38",
+        "username": "Sami",
+        "ip_address": "127.0.0.1",
+        "type": "failed_login"
     }
 ]

@@ -89,23 +89,7 @@ if not os.path.exists(USERS_FILE):
     }
     save_users(default_users)
 
-# Modifiez la route /login pour utiliser le système JSON
-# @app.route('/login', methods=['GET', 'POST'])
-# def login():
-#     if request.method == 'POST':
-#         username = request.form.get('username')
-#         password = request.form.get('password')
-        
-#         if verify_user(username, password):
-#             session['logged_in'] = True
-#             session['username'] = username
-#             flash('Connexion réussie!', 'success')
-#             return redirect(url_for('index'))
-#         else:
-#             flash('Identifiants incorrects. Veuillez réessayer.', 'danger')
-    
-#     return render_template('login.html')
-# Ajoutez cette fonction
+
 def count_recent_failed_attempts(ip_address, minutes=5):
     alerts = load_alerts()
     now = time.time()

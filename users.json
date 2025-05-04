@@ -10,5 +10,13 @@
     "Yassine": {
         "password": "scrypt:32768:8:1$EcFOSbJGRKuaEl3U$e6fb9b4ca2f1719292ef7e161956039872738d4efdd430c6cc470c357aa542df4ccb2d7e6e1f2ce54a101f5a142cf6f87d755b680f5266e3e602d5a53a1c00af",
         "role": "user"
+    },
+    "Sami": {
+        "password": "scrypt:32768:8:1$iRX2qZYdaEVHWwhq$b4e5d4d691583284794d98d7c8f9b4d3525de17d50930bc9b00d025d8199257c47f114faaf08e0e35f259471cf95ea629e9a7686ea1ae6599c5bd7e9e80d6e88",
+        "role": "user"
+    },
+    "bilel": {
+        "password": "scrypt:32768:8:1$pGEAjCGbZxEr1QF5$c11ace51240cd24a831041371bd92cf735474adf2a0782fa6fb3e211c77efa1033b619f156b93b2e02d7d21d6960cc26fd007bedf7abd404af3ba65e07592e21",
+        "role": "user"
     }
 }
